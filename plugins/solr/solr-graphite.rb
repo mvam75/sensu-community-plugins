@@ -32,6 +32,11 @@ class SolrGraphite < Sensu::Plugin::Metric::CLI::Graphite
     :proc => proc {|p| p.to_i },
     :required => true
 
+  option :core,
+    :description => "Name of Solr Core",
+    :short => "-c CORE",
+    :long => " --core CORE"
+    
   option :scheme,
     :description => "Metric naming scheme, text to prepend to metric",
     :short => "-s SCHEME",
@@ -39,7 +44,12 @@ class SolrGraphite < Sensu::Plugin::Metric::CLI::Graphite
     :default => "#{Socket.gethostname}.solr"
 
   def run
-    ping_url = "http://#{config[:host]}:#{config[:port]}/solr/admin/ping?wt=json"
+
+    if config[:core]
+      ping_url = "http://#{config[:host]}:#{config[:port]}/solr/#{config[:core]}/admin/ping?wt=json"
+    else
+      ping_url = "http://#{config[:host]}:#{config[:port]}/solr/admin/ping?wt=json"
+    end
 
     resp = Net::HTTP.get_response(URI.parse(ping_url))
     ping = JSON.parse(resp.body)
@@ -47,7 +57,11 @@ class SolrGraphite < Sensu::Plugin::Metric::CLI::Graphite
     output "#{config[:scheme]}.solr.QueryTime", ping["responseHeader"]["QTime"]
     output "#{config[:scheme]}.solr.Status", ping["responseHeader"]["status"]
 
-    stats_url = "http://#{config[:host]}:#{config[:port]}/solr/admin/stats.jsp"
+    if config[:core]
+      stats_url = "http://#{config[:host]}:#{config[:port]}/solr/#{config[:core]}/admin/stats.jsp"
+    else
+      stats_url = "http://#{config[:host]}:#{config[:port]}/solr/admin/stats.jsp"
+    end
 
     xml_data = Net::HTTP.get_response(URI.parse(stats_url)).body.gsub("\n","")
     stats  = Crack::XML.parse(xml_data)
@@ -56,6 +70,7 @@ class SolrGraphite < Sensu::Plugin::Metric::CLI::Graphite
     core_searcher = stats["solr"]["solr_info"]["CORE"]["entry"].find_all {|v| v["name"].strip! == "searcher"}.first["stats"]["stat"]
     standard = stats["solr"]["solr_info"]["QUERYHANDLER"]["entry"].find_all {|v| v["name"].strip! == "standard"}.first["stats"]["stat"]
     update = stats["solr"]["solr_info"]["QUERYHANDLER"]["entry"].find_all {|v| v["name"] == "/update"}.first["stats"]["stat"]
+    replication = stats["solr"]["solr_info"]["QUERYHANDLER"]["entry"].find_all {|v| v["name"] == "/replication"}.first["stats"]["stat"]
     updatehandler = stats["solr"]["solr_info"]["UPDATEHANDLER"]["entry"]["stats"]["stat"]
     querycache = stats["solr"]["solr_info"]["CACHE"]["entry"].find_all {|v| v["name"].strip! == "queryResultCache"}.first["stats"]["stat"]
     documentcache = stats["solr"]["solr_info"]["CACHE"]["entry"].find_all {|v| v["name"] == "documentCache"}.first["stats"]["stat"]
@@ -121,6 +136,10 @@ class SolrGraphite < Sensu::Plugin::Metric::CLI::Graphite
     output "#{config[:scheme]}.queryhandler.filtercache.cumulativehits", filtercache[8].strip!
     output "#{config[:scheme]}.queryhandler.filtercache.cumulativehitratio", filtercache[9].strip!
     output "#{config[:scheme]}.queryhandler.filtercache.cumulativeinserts", documentcache[10].strip!
+    
+    output "#{config[:scheme]}.queryhandler.replication.indexsize", replication[7].strip!
+    output "#{config[:scheme]}.queryhandler.replication.indexversion", replication[8].strip!
+    output "#{config[:scheme]}.queryhandler.replication.generation", replication[9].strip!
 
     ok
   end
